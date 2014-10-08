@@ -5,19 +5,11 @@ import (
 	"fmt"
 	"net"
 	"time"
+	"runtime"
 )
 
 
 func main() {
-	//fmt.Printf("<< Server started ! \r\n")
-	//addrs,err := net.LookupHost("www.qq.com")
-	//if err != nil {
-	//	fmt.Printf("[Error] %v \r\n",err)
-	//	return
-	//}
-	//fmt.Printf("<< Addrs:%v \r\n",addrs)
-
-
 	fmt.Printf("<< --------------- \r\n")
 	fmt.Printf("<< Start UDP listener..... \r\n")
 
@@ -31,28 +23,6 @@ func main() {
 
 	fmt.Printf("<< UDP listening ....\r\n")
 
-	fmt.Printf("<< --------------- \r\n")
-	fmt.Printf("<< Start TCP listener..... \r\n")
-	var tcp_addr net.TCPAddr
-	tcp_addr.IP = net.IPv4(0,0,0,0)
-	tcp_addr.Port = 1153
-	tcp_listener,err := net.ListenTCP("tcp",&tcp_addr)
-	if err != nil {
-		fmt.Printf("[Error] %v \r\n",err)
-	}
-
-	fmt.Printf("<< TCP listening ....\r\n")
-
-	go func(listener *net.TCPListener) {
-		fmt.Printf("<< Tring to accept ...\r\n")
-		for {
-			listener.Accept()
-			fmt.Printf("<< New connected ...\r\n")
-		}
-	}(tcp_listener)
-	time.Sleep(1 * time.Second)
-
-	fmt.Printf("<< Send dns data to transfer host...\r\n")
 	
 
 	for {
@@ -61,6 +31,7 @@ func main() {
 		length,addr,err := udp_conn.ReadFromUDP(dns_data)
 		if err != nil {
 			fmt.Printf("<<[Error] %v \r\n",err)
+			continue
 		}
 
 		dns_data  = dns_data[0:length]
@@ -73,8 +44,18 @@ func main() {
 		fmt.Printf("\r\n<< Throw in goroutine to handle ....\r\n")
 
 		go func(data []byte,conn *net.UDPConn,udp_addr *net.UDPAddr){
+			if x := recover(); x != nil {
+				fmt.Printf("%v", x)
+				for i := 0; i < 10; i++ {
+					funcName, file, line, ok := runtime.Caller(i)
+					if ok {
+						fmt.Printf("frame %v:[func:%v,file:%v,line:%v]\n", i, runtime.FuncForPC(funcName).Name(), file, line)
+					}
+				}
+			}
 			bytes,err := transfer_dns(data) ; if err != nil {
-				fmt.Printf("<<[Error] %v \r\n",err)
+				fmt.Printf("<< [Error] %v \r\n",err)
+				return 
 			}
 			conn.WriteToUDP(bytes,udp_addr)
 		}(dns_data,udp_conn,addr)
@@ -91,18 +72,19 @@ func transfer_dns(query_data []byte) ([]byte,error) {
 		)
 		b := make([]byte,2048)
 
-		if conn, err = net.Dial("udp", "27.255.74.26:2253"); err != nil {
-			fmt.Println(err.Error())
-			return nil,err
-		}
-
-		if length,err = conn.Write(query_data); err != nil {
+		if conn, err = net.Dial("tcp", "27.255.74.26:5553"); err != nil {
 			fmt.Println(err.Error())
 			return nil,err
 		}
 
 		defer conn.Close()
+		conn.SetDeadline( time.Now().Add(5 * time.Second) )
 
+		if length,err = conn.Write(query_data); err != nil {
+			fmt.Println(err.Error())
+			return nil,err
+		}
+		
 		fmt.Printf("<< Send %d bytes to transfered server ... \r\n",length)
 		
 		length,err = conn.Read(b) ; if err != nil {
